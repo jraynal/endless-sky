@@ -23,6 +23,7 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 #include "Outfit.h"
 #include "PlayerInfo.h"
 #include "Point.h"
+#include "PointerShader.h"
 #include "Preferences.h"
 #include "RingShader.h"
 #include "Screen.h"
@@ -77,6 +78,10 @@ void MapSalesPanel::Draw()
 	
 	zones.clear();
 	hidPrevious = true;
+	
+	// Adjust the scroll amount if for some reason the display has changed so
+	// that no items are visible.
+	scroll = min(0., max(-maxScroll, scroll));
 	
 	DrawKey();
 	DrawPanel();
@@ -140,11 +145,16 @@ bool MapSalesPanel::Click(int x, int y, int clicks)
 				}
 				break;
 			}
-		
-		return true;
+	}
+	else if(x >= Screen::Left() + WIDTH + 30 && x < Screen::Left() + WIDTH + 190 && y < Screen::Top() + 70)
+	{
+		// This click was in the map key.
+		onlyShowSoldHere = (!onlyShowSoldHere && y >= Screen::Top() + 42 && y < Screen::Top() + 62);
 	}
 	else
 		return MapPanel::Click(x, y, clicks);
+	
+	return true;
 }
 
 
@@ -206,6 +216,11 @@ void MapSalesPanel::DrawKey() const
 		bool isSelected = (VALUE[i] == selectedValue);
 		RingShader::Draw(pos, OUTER, INNER, MapColor(VALUE[i]));
 		font.Draw(KeyLabel(i), pos + textOff, isSelected ? bright : dim);
+		if(onlyShowSoldHere && i == 2)
+		{
+			// If we're filtering out items not sold here, draw a pointer.
+			PointerShader::Draw(pos + Point(-7., 0.), Point(1., 0.), 10., 10., 0., bright);
+		}
 		pos.Y() += 20.;
 	}
 }
@@ -240,19 +255,25 @@ void MapSalesPanel::DrawInfo() const
 {
 	if(selected >= 0)
 	{
+		const Sprite *left = SpriteSet::Get("ui/left edge");
+		const Sprite *bottom = SpriteSet::Get(compare >= 0 ? "ui/bottom edges" : "ui/bottom edge");
+		const Sprite *box = SpriteSet::Get(compare >= 0 ? "ui/thumb boxes" : "ui/thumb box");
+		
 		const ItemInfoDisplay &selectedInfo = SelectedInfo();
 		const ItemInfoDisplay &compareInfo = CompareInfo();
-		int selectedHeight = max(selectedInfo.AttributesHeight(), 120);
-		int compareHeight = (compare >= 0) ? max(compareInfo.AttributesHeight(), 120) : 0;
+		int height = max<int>(selectedInfo.AttributesHeight(), box->Height());
+		int width = selectedInfo.PanelWidth();
+		if(compare >= 0)
+		{
+			height = max(height, compareInfo.AttributesHeight());
+			width += box->Width() + compareInfo.PanelWidth();
+		}
 		
 		Color back(.125, 1.);
-		Point size(selectedInfo.PanelWidth(), selectedHeight + compareHeight);
+		Point size(width, height);
 		Point topLeft(Screen::Right() - size.X(), Screen::Top());
 		FillShader::Fill(topLeft + .5 * size, size, back);
 		
-		const Sprite *left = SpriteSet::Get("ui/left edge");
-		const Sprite *bottom = SpriteSet::Get("ui/bottom edge");
-		const Sprite *box = SpriteSet::Get("ui/thumb box");
 		Point leftPos = topLeft + Point(
 			-.5 * left->Width(),
 			size.Y() - .5 * left->Height());
@@ -264,25 +285,21 @@ void MapSalesPanel::DrawInfo() const
 			.5 * (left->Height() + bottom->Height()));
 		SpriteShader::Draw(bottom, bottomPos);
 		
-		Point iconOffset(-.5 * ICON_HEIGHT, .5 * ICON_HEIGHT);
-		
-		SpriteShader::Draw(box, topLeft + iconOffset + Point(-15., 5.));
-		DrawSprite(topLeft + Point(-ICON_HEIGHT, 5.), SelectedSprite());
-		
-		selectedInfo.DrawAttributes(topLeft);
-		
 		if(compare >= 0)
 		{
-			topLeft.Y() += selectedHeight;
-			
-			SpriteShader::Draw(box, topLeft + iconOffset + Point(-15., 5.));
-			DrawSprite(topLeft + Point(-ICON_HEIGHT, 5.), CompareSprite());
-			
-			Color line(.5);
-			size.Y() = 1.;
-			FillShader::Fill(topLeft + .5 * size - Point(0., 1.), size, line);
 			compareInfo.DrawAttributes(topLeft);
+			topLeft.X() += compareInfo.PanelWidth() + box->Width();
+			
+			SpriteShader::Draw(box, topLeft + Point(-50., 100.));
+			DrawSprite(topLeft + Point(-95., 5.), SelectedSprite());
+			DrawSprite(topLeft + Point(-95., 105.), CompareSprite());
 		}
+		else
+		{
+			SpriteShader::Draw(box, topLeft + Point(-60., 50.));
+			DrawSprite(topLeft + Point(-95., 5.), SelectedSprite());
+		}
+		selectedInfo.DrawAttributes(topLeft);
 	}
 }
 
@@ -314,7 +331,7 @@ void MapSalesPanel::DrawSprite(const Point &corner, const Sprite *sprite) const
 	if(sprite)
 	{
 		Point iconOffset(.5 * ICON_HEIGHT, .5 * ICON_HEIGHT);
-		double scale = min(.5, (ICON_HEIGHT - 2.) / sprite->Height());
+		double scale = min(.5, min((ICON_HEIGHT - 2.) / sprite->Height(), (ICON_HEIGHT - 2.) / sprite->Width()));
 		SpriteShader::Draw(sprite, corner + iconOffset, scale, swizzle);
 	}
 }

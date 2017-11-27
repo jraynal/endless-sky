@@ -59,11 +59,13 @@ protected:
 	virtual bool CanBuy() const = 0;
 	virtual void Buy() = 0;
 	virtual void FailBuy() const = 0;
-	virtual bool CanSell() const = 0;
-	virtual void Sell() = 0;
-	virtual void FailSell() const;
-	virtual bool FlightCheck() = 0;
+	virtual bool CanSell(bool toCargo = false) const = 0;
+	virtual void Sell(bool toCargo = false) = 0;
+	virtual void FailSell(bool toCargo = false) const;
 	virtual bool CanSellMultiple() const;
+	virtual void DrawKey();
+	virtual void ToggleForSale();
+	virtual void ToggleCargo();
 	
 	// Only override the ones you need; the default action is to return false.
 	virtual bool KeyDown(SDL_Keycode key, Uint16 mod, const Command &command) override;
@@ -72,6 +74,8 @@ protected:
 	virtual bool Drag(double dx, double dy) override;
 	virtual bool Release(int x, int y) override;
 	virtual bool Scroll(double dx, double dy) override;
+	
+	int64_t LicenseCost(const Outfit *outfit) const;
 	
 	
 protected:
@@ -111,15 +115,16 @@ protected:
 	const Ship *selectedShip = nullptr;
 	const Outfit *selectedOutfit = nullptr;
 	
-	double mainScroll = 0;
-	double sideScroll = 0;
-	int maxMainScroll = 0;
-	int maxSideScroll = 0;
+	double mainScroll = 0.;
+	double sideScroll = 0.;
+	double maxMainScroll = 0.;
+	double maxSideScroll = 0.;
 	bool dragMain = true;
 	int mainDetailHeight = 0;
 	int sideDetailHeight = 0;
 	bool scrollDetailsIntoView = false;
-	double selectedBottomY = 0.;
+	double selectedTopY = 0.;
+	bool sameSelectedTopY = false;
 	
 	std::vector<Zone> zones;
 	std::vector<ClickZone<std::string>> categoryZones;
@@ -130,6 +135,9 @@ protected:
 	
 	ShipInfoDisplay shipInfo;
 	OutfitInfoDisplay outfitInfo;
+	
+	mutable Point warningPoint;
+	mutable std::string warningType;
 	
 	
 private:

@@ -38,9 +38,9 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 using namespace std;
 
 namespace {
-	static bool isReady = false;
-	static float alpha = 1.;
-	static const int scrollSpeed = 2;
+	bool isReady = false;
+	float alpha = 1.;
+	const int scrollSpeed = 2;
 }
 
 
@@ -50,17 +50,7 @@ MenuPanel::MenuPanel(PlayerInfo &player, UI &gamePanels)
 {
 	SetIsFullScreen(true);
 	
-	string data = Files::Read(Files::Resources() + "credits.txt");
-	size_t pos = 0;
-	while(pos < data.size())
-	{
-		size_t end = data.find('\n', pos);
-		if(end == string::npos)
-			end = data.size();
-		
-		credits.push_back(data.substr(pos, end - pos));
-		pos = end + 1;
-	}
+	credits = Format::Split(Files::Read(Files::Resources() + "credits.txt"), "\n");
 }
 
 
@@ -171,8 +161,12 @@ void MenuPanel::OnCallback(int)
 	gamePanels.Push(new MainPanel(player));
 	// Tell the main panel to re-draw itself (and pop up the planet panel).
 	gamePanels.StepAll();
-	gamePanels.Push(new ShipyardPanel(player));
-	gamePanels.StepAll();
+	// If the starting conditions don't specify any ships, let the player buy one.
+	if(player.Ships().empty())
+	{
+		gamePanels.Push(new ShipyardPanel(player));
+		gamePanels.StepAll();
+	}
 }
 
 
@@ -188,10 +182,9 @@ bool MenuPanel::KeyDown(SDL_Keycode key, Uint16 mod, const Command &command)
 		GetUI()->Push(new PreferencesPanel());
 	else if(key == 'l')
 		GetUI()->Push(new LoadPanel(player, gamePanels));
-	else if(key == 'n' || key == 'e')
+	else if(key == 'n' && (!player.IsLoaded() || player.IsDead()))
 	{
-		// The "New Pilot" and "Enter Ship" buttons are in the same place.
-		GameData::Revert();
+		// If no player is loaded, the "Enter Ship" button becomes "New Pilot."
 		player.New();
 		
 		ConversationPanel *panel = new ConversationPanel(

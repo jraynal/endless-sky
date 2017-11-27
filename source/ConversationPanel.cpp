@@ -40,9 +40,9 @@ using namespace std;
 
 namespace {
 	// Width of the conversation text.
-	static const int WIDTH = 540;
+	const int WIDTH = 540;
 	// Margin on either side of the text.
-	static const int MARGIN = 20;
+	const int MARGIN = 20;
 }
 
 
@@ -180,7 +180,7 @@ void ConversationPanel::Draw()
 		}
 	}
 	// Store the total height of the text.
-	maxScroll = min(0, Screen::Top() - static_cast<int>(point.Y() - scroll) + font.Height() + 15);
+	maxScroll = min(0., Screen::Top() - (point.Y() - scroll) + font.Height() + 15.);
 }
 
 
@@ -212,13 +212,16 @@ bool ConversationPanel::KeyDown(SDL_Keycode key, Uint16 mod, const Command &comm
 		if(key >= ' ' && key <= '~')
 		{
 			// Apply the shift or caps lock key.
-			char c = ((mod & (KMOD_SHIFT | KMOD_CAPS)) ? SHIFT[key] : key);
+			char c = ((mod & KMOD_SHIFT) ? SHIFT[key] : key);
+			// Caps lock should shift letters, but not any other keys.
+			if((mod & KMOD_CAPS) && c >= 'a' && c <= 'z')
+				c += 'A' - 'a';
 			// Don't allow characters that can't be used in a file name.
 			static const string FORBIDDEN = "/\\?*:|\"<>~";
 			if(FORBIDDEN.find(c) == string::npos)
 				name += c;
 		}
-		else if((key == SDLK_DELETE || key == SDLK_BACKSPACE) && name.size())
+		else if((key == SDLK_DELETE || key == SDLK_BACKSPACE) && !name.empty())
 			name.erase(name.size() - 1);
 		else if(key == '\t' || ((key == SDLK_RETURN || key == SDLK_KP_ENTER) && otherName.empty()))
 			choice = !choice;
@@ -263,7 +266,7 @@ bool ConversationPanel::KeyDown(SDL_Keycode key, Uint16 mod, const Command &comm
 // Allow scrolling by click and drag.
 bool ConversationPanel::Drag(double dx, double dy)
 {
-	scroll = min(0., max(static_cast<double>(maxScroll), scroll + dy));
+	scroll = min(0., max(maxScroll, scroll + dy));
 	
 	return true;
 }

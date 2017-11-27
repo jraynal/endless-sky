@@ -13,6 +13,7 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 #include "StarField.h"
 
 #include "Angle.h"
+#include "Body.h"
 #include "DrawList.h"
 #include "pi.h"
 #include "Point.h"
@@ -28,16 +29,16 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 using namespace std;
 
 namespace {
-	static const int TILE_SIZE = 256;
+	const int TILE_SIZE = 256;
 	// The star field tiles in 4000 pixel increments. Have the tiling of the haze
 	// field be as different from that as possible. (Note: this may need adjusting
 	// in the future if monitors larger than this width ever become commonplace.)
-	static const double HAZE_WRAP = 6627.;
+	const double HAZE_WRAP = 6627.;
 	// Don't let two haze patches be closer to each other than this distance. This
 	// avoids having very bright haze where several patches overlap.
-	static const double HAZE_DISTANCE = 1200.;
+	const double HAZE_DISTANCE = 1200.;
 	// This is how many haze fields should be drawn.
-	static const size_t HAZE_COUNT = 16;
+	const size_t HAZE_COUNT = 16;
 }
 
 
@@ -70,6 +71,18 @@ void StarField::Init(int stars, int width)
 		}
 		haze.emplace_back(sprite, next, Point(), Angle::Random(), 8.);
 	}
+}
+
+
+
+void StarField::SetHaze(const Sprite *sprite)
+{
+	// If no sprite is given, set the default one.
+	if(!sprite)
+		sprite = SpriteSet::Get("_menu/haze");
+	
+	for(Body &body : haze)
+		body.SetSprite(sprite);
 }
 
 

@@ -45,7 +45,7 @@ namespace {
 			// For every 100 credits in profit you can make, double the chance
 			// of this commodity being chosen.
 			double profit = to.Trade(commodity.name) - from.Trade(commodity.name);
-			int w = max(1, static_cast<int>(100. * pow(2., profit * .01)));
+			int w = max<int>(1, 100. * pow(2., profit * .01));
 			weight.push_back(w);
 			total += w;
 		}
@@ -68,10 +68,22 @@ namespace {
 // Load a mission, either from the game data or from a saved game.
 void Mission::Load(const DataNode &node)
 {
-	if(node.Size() >= 2)
-		name = node.Token(1);
-	else
-		name = "Unnamed Mission";
+	// All missions need a name.
+	if(node.Size() < 2)
+	{
+		node.PrintTrace("No name specified for mission:");
+		return;
+	}
+	// If a mission object is "loaded" twice, that is most likely an error (e.g.
+	// due to a plugin containing a mission with the same name as the base game
+	// or another plugin). This class is not designed to allow merging or
+	// overriding of mission data from two different definitions.
+	if(!name.empty())
+	{
+		node.PrintTrace("Duplicate definition of mission:");
+		return;
+	}
+	name = node.Token(1);
 	
 	for(const DataNode &child : node)
 	{
@@ -102,19 +114,8 @@ void Mission::Load(const DataNode &node)
 				cargoProb = child.Value(4);
 			
 			for(const DataNode &grand : child)
-			{
-				if(grand.Token(0) == "illegal" && grand.Size() == 2)
-					illegalCargoFine = grand.Value(1);
-				else if(grand.Token(0) == "illegal" && grand.Size() == 3)
-				{
-					illegalCargoFine = grand.Value(1);
-					illegalCargoMessage = grand.Token(2);
-				}
-				else if(grand.Token(0) == "stealth")
-					failIfDiscovered = true;
-				else
+				if(!ParseContraband(grand))
 					grand.PrintTrace("Skipping unrecognized attribute:");
-			}
 		}
 		else if(child.Token(0) == "passengers" && child.Size() >= 2)
 		{
@@ -123,6 +124,11 @@ void Mission::Load(const DataNode &node)
 				passengerLimit = child.Value(2);
 			if(child.Size() >= 4)
 				passengerProb = child.Value(3);
+		}
+		else if(ParseContraband(child))
+		{
+			// This was an "illegal" or "stealth" entry. It has already been
+			// parsed, so nothing more needs to be done here.
 		}
 		else if(child.Token(0) == "invisible")
 			isVisible = false;
@@ -240,27 +246,13 @@ void Mission::Save(DataWriter &out, const string &tag) const
 		if(deadline)
 			out.Write("deadline", deadline.Day(), deadline.Month(), deadline.Year());
 		if(cargoSize)
-		{
 			out.Write("cargo", cargo, cargoSize);
-			if(illegalCargoFine)
-			{
-				out.BeginChild();
-				{
-					out.Write("illegal", illegalCargoFine, illegalCargoMessage);
-				}
-				out.EndChild();
-			}
-			if(failIfDiscovered)
-			{
-				out.BeginChild();
-				{
-					out.Write("stealth");
-				}
-				out.EndChild();
-			}
-		}
 		if(passengers)
 			out.Write("passengers", passengers);
+		if(illegalCargoFine)
+			out.Write("illegal", illegalCargoFine, illegalCargoMessage);
+		if(failIfDiscovered)
+			out.Write("stealth");
 		if(!isVisible)
 			out.Write("invisible");
 		if(hasPriority)
@@ -561,23 +553,38 @@ bool Mission::HasSpace(const PlayerInfo &player) const
 	if(player.Flagship())
 		extraCrew = player.Flagship()->Crew() - player.Flagship()->RequiredCrew();
 	return (cargoSize <= player.Cargo().Free() + player.Cargo().CommoditiesSize()
-		&& passengers <= player.Cargo().Bunks() + extraCrew);
+		&& passengers <= player.Cargo().BunksFree() + extraCrew);
 }
 
 
 
 bool Mission::CanComplete(const PlayerInfo &player) const
 {
-	if(player.GetPlanet() != destination || !waypoints.empty() || !stopovers.empty())
+	if(player.GetPlanet() != destination)
 		return false;
 	
 	if(!toComplete.Test(player.Conditions()))
 		return false;
 	
+	return IsSatisfied(player);
+}
+
+
+
+// This function dictates whether missions on the player's map are shown in
+// bright or dim text colors.
+bool Mission::IsSatisfied(const PlayerInfo &player) const
+{
+	if(!waypoints.empty() || !stopovers.empty())
+		return false;
+	
+	// Determine if any fines or outfits that must be transferred, can.
 	auto it = actions.find(COMPLETE);
 	if(it != actions.end() && !it->second.CanBeDone(player))
 		return false;
 	
+	// NPCs which must be accompanied or evaded must be present (or not),
+	// and any needed scans, boarding, or assisting must also be completed.
 	for(const NPC &npc : npcs)
 		if(!npc.HasSucceeded(player.GetSystem()))
 			return false;
@@ -629,7 +636,7 @@ string Mission::BlockedMessage(const PlayerInfo &player)
 		extraCrew = player.Flagship()->Crew() - player.Flagship()->RequiredCrew();
 	
 	int cargoNeeded = cargoSize - (player.Cargo().Free() + player.Cargo().CommoditiesSize());
-	int bunksNeeded = passengers - (player.Cargo().Bunks() + extraCrew);
+	int bunksNeeded = passengers - (player.Cargo().BunksFree() + extraCrew);
 	if(cargoNeeded < 0 && bunksNeeded < 0)
 		return "";
 	
@@ -698,6 +705,11 @@ bool Mission::Do(Trigger trigger, PlayerInfo &player, UI *ui)
 		if(!stopovers.empty())
 			return false;
 	}
+	// Don't update any conditions if this action exists and can't be completed.
+	auto it = actions.find(trigger);
+	if(it != actions.end() && !it->second.CanBeDone(player))
+		return false;
+	
 	if(trigger == ACCEPT)
 	{
 		++player.Conditions()[name + ": offered"];
@@ -718,20 +730,13 @@ bool Mission::Do(Trigger trigger, PlayerInfo &player, UI *ui)
 	if(trigger == OFFER && location == JOB)
 		ui = nullptr;
 	
-	auto it = actions.find(trigger);
-	if(it == actions.end())
-	{
-		// If a mission has no "on offer" field, it is automatically accepted.
-		if(trigger == OFFER && location != JOB)
-			player.MissionCallback(Conversation::ACCEPT);
-		return true;
-	}
-	
-	if(!it->second.CanBeDone(player))
-		return false;
-	
-	// Perform any actions tied to this event.
-	it->second.Do(player, ui, destination ? destination->GetSystem() : nullptr);
+	// If this trigger has actions tied to it, perform them. Otherwise, check
+	// if this is a non-job mission that just got offered and if so,
+	// automatically accept it.
+	if(it != actions.end())
+		it->second.Do(player, ui, destination ? destination->GetSystem() : nullptr);
+	else if(trigger == OFFER && location != JOB)
+		player.MissionCallback(Conversation::ACCEPT);
 	
 	return true;
 }
@@ -751,20 +756,34 @@ const list<NPC> &Mission::NPCs() const
 // about it. This may affect the mission status or display a message.
 void Mission::Do(const ShipEvent &event, PlayerInfo &player, UI *ui)
 {
-	if(event.TargetGovernment()->IsPlayer() && !hasFailed
-			&& (event.Type() & ShipEvent::DESTROY))
+	if(event.TargetGovernment()->IsPlayer() && !hasFailed)
 	{
 		bool failed = false;
-		for(const auto &it : event.Target()->Cargo().MissionCargo())
-			failed |= (it.first == this);
-		for(const auto &it : event.Target()->Cargo().PassengerList())
-			failed |= (it.first == this);
+		string message = "Your ship '" + event.Target()->Name() + "' has been ";
+		if(event.Type() & ShipEvent::DESTROY)
+		{
+			// Destroyed ships carrying mission cargo result in failed missions.
+			for(const auto &it : event.Target()->Cargo().MissionCargo())
+				failed |= (it.first == this);
+			for(const auto &it : event.Target()->Cargo().PassengerList())
+				failed |= (it.first == this);
+			if(failed)
+				message += "lost. ";
+		}
+		else if(event.Type() & ShipEvent::BOARD)
+		{
+			// Fail missions whose cargo is stolen by a boarding vessel.
+			for(const auto &it : event.Actor()->Cargo().MissionCargo())
+				failed |= (it.first == this);
+			if(failed)
+				message += "plundered. ";
+		}
 		
 		if(failed)
 		{
 			hasFailed = true;
 			if(isVisible)
-				Messages::Add("Ship lost. Mission failed: \"" + displayName + "\".");
+				Messages::Add(message + "Mission failed: \"" + displayName + "\".");
 		}
 	}
 	
@@ -772,10 +791,8 @@ void Mission::Do(const ShipEvent &event, PlayerInfo &player, UI *ui)
 	if((event.Type() & ShipEvent::JUMP) && event.Actor())
 	{
 		const System *system = event.Actor()->GetSystem();
-		
-		auto it = waypoints.find(system);
-		if(it != waypoints.end())
-			waypoints.erase(it);
+		// If this was a waypoint, clear it.
+		waypoints.erase(system);
 		
 		Enter(system, player, ui);
 		// Allow special "on enter" conditions that match any system.
@@ -814,9 +831,7 @@ Mission Mission::Instantiate(const PlayerInfo &player) const
 	result.name = name;
 	result.waypoints = waypoints;
 	// If one of the waypoints is the current system, it is already visited.
-	auto it = result.waypoints.find(player.GetSystem());
-	if(it != result.waypoints.end())
-		result.waypoints.erase(it);
+	result.waypoints.erase(player.GetSystem());
 	// Handle waypoint systems that are chosen randomly.
 	for(const LocationFilter &filter : waypointFilters)
 	{
@@ -935,15 +950,15 @@ Mission Mission::Instantiate(const PlayerInfo &player) const
 		auto it = destinations.begin();
 		auto bestIt = it;
 		for(++it; it != destinations.end(); ++it)
-			if(distance.Distance(*it) < distance.Distance(*bestIt))
+			if(distance.Days(*it) < distance.Days(*bestIt))
 				bestIt = it;
 		
 		source = *bestIt;
+		jumps += distance.Days(*bestIt);
 		destinations.erase(bestIt);
-		jumps += distance.Distance(*bestIt);
 	}
 	DistanceMap distance(source);
-	jumps += distance.Distance(result.destination->GetSystem());
+	jumps += distance.Days(result.destination->GetSystem());
 	int payload = result.cargoSize + 10 * result.passengers;
 	
 	// Set the deadline, if requested.
@@ -1052,10 +1067,31 @@ const Planet *Mission::PickPlanet(const LocationFilter &filter, const PlayerInfo
 		// Skip entries with incomplete data.
 		if(it.second.Name().empty() || (clearance.empty() && !it.second.CanLand()))
 			continue;
-		if(it.second.IsWormhole() || !it.second.HasSpaceport())
+		if(it.second.IsWormhole() || !it.second.HasSpaceport() || !it.second.GetSystem())
 			continue;
 		if(filter.Matches(&it.second, player.GetSystem()))
 			options.push_back(&it.second);
 	}
 	return options.empty() ? nullptr : options[Random::Int(options.size())];
+}
+
+
+
+// For legacy code, contraband definitions can be placed in two different
+// locations, so move that parsing out to a helper function.
+bool Mission::ParseContraband(const DataNode &node)
+{
+	if(node.Token(0) == "illegal" && node.Size() == 2)
+		illegalCargoFine = node.Value(1);
+	else if(node.Token(0) == "illegal" && node.Size() == 3)
+	{
+		illegalCargoFine = node.Value(1);
+		illegalCargoMessage = node.Token(2);
+	}
+	else if(node.Token(0) == "stealth")
+		failIfDiscovered = true;
+	else
+		return false;
+	
+	return true;
 }

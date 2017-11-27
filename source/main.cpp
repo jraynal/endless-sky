@@ -29,6 +29,8 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 #include "PlayerInfo.h"
 #include "Preferences.h"
 #include "Screen.h"
+#include "SpriteSet.h"
+#include "SpriteShader.h"
 #include "UI.h"
 
 #include "gl_header.h"
@@ -95,7 +97,6 @@ int main(int argc, char *argv[])
 #endif
 		
 		player.LoadRecent();
-		player.ApplyChanges();
 		
 		// Check how big the window can be.
 		SDL_DisplayMode mode;
@@ -186,7 +187,12 @@ int main(int argc, char *argv[])
 		GameData::LoadShaders();
 		// Make sure the screen size and viewport are set correctly.
 		AdjustViewport(window);
+#ifndef __APPLE__
+		// On OS X, setting the window icon will cause that same icon to be used
+		// in the dock and the application switcher. That's not something we
+		// want, because the .icns icon that is used automatically is prettier.
 		SetIcon(window);
+#endif
 		if(!isFullscreen)
 			SDL_GetWindowSize(window, &windowWidth, &windowHeight);
 		
@@ -218,8 +224,13 @@ int main(int argc, char *argv[])
 				"government they belong to. So, all human ships will be the same color, which "
 				"may be confusing. Consider upgrading your graphics driver (or your OS)."));
 		
-		FrameTimer timer(60);
+		bool showCursor = true;
+		int cursorTime = 0;
+		int frameRate = 60;
+		FrameTimer timer(frameRate);
 		bool isPaused = false;
+		// If fast forwarding, keep track of whether the current frame should be drawn.
+		int skipFrame = 0;
 		while(!menuPanels.IsDone())
 		{
 			// Handle any events that occurred in this frame.
@@ -228,14 +239,13 @@ int main(int argc, char *argv[])
 			{
 				UI &activeUI = (menuPanels.IsEmpty() ? gamePanels : menuPanels);
 				
+				// If the mouse moves, reset the cursor movement timeout.
+				if(event.type == SDL_MOUSEMOTION)
+					cursorTime = 0;
+				
 				// The caps lock key slows the game down (to make it easier to
 				// see and debug things that are happening quickly).
-				if(debugMode && (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
-						&& event.key.keysym.sym == SDLK_CAPSLOCK)
-				{
-					timer.SetFrameRate((event.key.keysym.mod & KMOD_CAPS) ? 10 : 60);
-				}
-				else if(debugMode && event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_BACKQUOTE)
+				if(debugMode && event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_BACKQUOTE)
 				{
 					isPaused = !isPaused;
 				}
@@ -278,14 +288,56 @@ int main(int argc, char *argv[])
 					// No need to do anything more!
 				}
 			}
-			Font::ShowUnderlines(SDL_GetModState() & KMOD_ALT);
+			SDL_Keymod mod = SDL_GetModState();
+			Font::ShowUnderlines(mod & KMOD_ALT);
+			
+			// In fullscreen mode, hide the cursor if inactive for ten seconds,
+			// but only if the player is flying around in the main view.
+			++cursorTime;
+			bool shouldShowCursor = (!isFullscreen || cursorTime < 600 
+				|| !menuPanels.IsEmpty() || gamePanels.Root() != gamePanels.Top());
+			if(shouldShowCursor != showCursor)
+			{
+				showCursor = shouldShowCursor;
+				SDL_ShowCursor(showCursor);
+			}
 			
 			// Tell all the panels to step forward, then draw them.
 			((!isPaused && menuPanels.IsEmpty()) ? gamePanels : menuPanels).StepAll();
+			
+			// Caps lock slows the frame rate in debug mode, but raises it in
+			// normal mode. Slowing eases in and out over a couple of frames.
+			bool fastForward = false;
+			if(mod & KMOD_CAPS)
+			{
+				if(debugMode)
+				{
+					if(frameRate > 10)
+					{
+						frameRate = max(frameRate - 5, 10);
+						timer.SetFrameRate(frameRate);
+					}
+				}
+				else
+				{
+					fastForward = true;
+					skipFrame = (skipFrame + 1) % 3;
+					if(skipFrame)
+						continue;
+				}
+			}
+			else if(frameRate < 60)
+			{
+				frameRate = min(frameRate + 5, 60);
+				timer.SetFrameRate(frameRate);
+			}
+			
 			Audio::Step();
-			// That may have cleared out the menu, in which case we should draw
-			// the game panels instead:
+			// Events in this frame may have cleared out the menu, in which case
+			// we should draw the game panels instead:
 			(menuPanels.IsEmpty() ? gamePanels : menuPanels).DrawAll();
+			if(fastForward)
+				SpriteShader::Draw(SpriteSet::Get("ui/fast forward"), Screen::TopLeft() + Point(10., 10.));
 			
 			SDL_GL_SwapWindow(window);
 			timer.Wait();
@@ -339,7 +391,7 @@ void PrintHelp()
 void PrintVersion()
 {
 	cerr << endl;
-	cerr << "Endless Sky 0.9.4" << endl;
+	cerr << "Endless Sky 0.9.8" << endl;
 	cerr << "License GPLv3+: GNU GPL version 3 or later: <https://gnu.org/licenses/gpl.html>" << endl;
 	cerr << "This is free software: you are free to change and redistribute it." << endl;
 	cerr << "There is NO WARRANTY, to the extent permitted by law." << endl;
@@ -351,25 +403,20 @@ void PrintVersion()
 void SetIcon(SDL_Window *window)
 {
 	// Load the icon file.
-	ImageBuffer *buffer = ImageBuffer::Read(Files::Resources() + "icon.png");
-	if(!buffer)
+	ImageBuffer buffer;
+	if(!buffer.Read(Files::Resources() + "icon.png"))
 		return;
-	if(!buffer->Pixels() || !buffer->Width() || !buffer->Height())
-	{
-		delete buffer;
+	if(!buffer.Pixels() || !buffer.Width() || !buffer.Height())
 		return;
-	}
 	
 	// Convert the icon to an SDL surface.
-	SDL_Surface *surface = SDL_CreateRGBSurfaceFrom(buffer->Pixels(), buffer->Width(), buffer->Height(),
-		32, 4 * buffer->Width(), 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+	SDL_Surface *surface = SDL_CreateRGBSurfaceFrom(buffer.Pixels(), buffer.Width(), buffer.Height(),
+		32, 4 * buffer.Width(), 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
 	if(surface)
 	{
 		SDL_SetWindowIcon(window, surface);
 		SDL_FreeSurface(surface);
 	}
-	// Free the image buffer.
-	delete buffer;
 }
 
 
@@ -446,6 +493,9 @@ int DoError(string message, SDL_Window *window, SDL_GLContext context)
 
 void Cleanup(SDL_Window *window, SDL_GLContext context)
 {
+	// Make sure the cursor is visible.
+	SDL_ShowCursor(true);
+	
 	// Clean up in the reverse order that everything is launched.
 #ifndef _WIN32
 	// Under windows, this cleanup code causes intermittent crashes.

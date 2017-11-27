@@ -29,10 +29,10 @@ namespace {
 	int scrollSpeed = 60;
 	
 	// Strings for ammo expenditure:
-	static const string EXPEND_AMMO = "Escorts expend ammo";
-	static const string FRUGAL_ESCORTS = "Escorts use ammo frugally";
+	const string EXPEND_AMMO = "Escorts expend ammo";
+	const string FRUGAL_ESCORTS = "Escorts use ammo frugally";
 	
-	static const vector<double> ZOOMS = {.25, .35, .50, .70, 1.00, 1.40, 2.00};
+	const vector<double> ZOOMS = {.25, .35, .50, .70, 1.00, 1.40, 2.00};
 	int zoomIndex = 4;
 }
 
@@ -40,6 +40,8 @@ namespace {
 
 void Preferences::Load()
 {
+	// These settings should be on by default. There is no need to specify
+	// values for settings that are off by default.
 	settings["Automatic aiming"] = true;
 	settings["Render motion blur"] = true;
 	settings["Escorts use ammo frugally"] = true;
@@ -49,8 +51,8 @@ void Preferences::Load()
 	settings["Show planet labels"] = true;
 	settings["Show hyperspace flash"] = true;
 	settings["Draw background haze"] = true;
-	settings["Reduce large graphics"] = false;
 	settings["Hide unexplored map regions"] = true;
+	settings["Turrets focus fire"] = true;
 	
 	DataFile prefs(Files::Config() + "preferences.txt");
 	for(const DataNode &node : prefs)
@@ -118,6 +120,8 @@ string Preferences::AmmoUsage()
 	return Has(EXPEND_AMMO) ? Has(FRUGAL_ESCORTS) ? "frugally" : "always" : "never";
 }
 
+
+
 // Scroll speed preference.
 int Preferences::ScrollSpeed()
 {
@@ -141,14 +145,22 @@ double Preferences::ViewZoom()
 
 
 
-void Preferences::ZoomViewIn()
+bool Preferences::ZoomViewIn()
 {
-	zoomIndex = min(static_cast<int>(ZOOMS.size() - 1), zoomIndex + 1);
+	if(zoomIndex == static_cast<int>(ZOOMS.size() - 1))
+		return false;
+	
+	++zoomIndex;
+	return true;
 }
 
 
 
-void Preferences::ZoomViewOut()
+bool Preferences::ZoomViewOut()
 {
-	zoomIndex = max(0, zoomIndex - 1);
+	if(zoomIndex == 0)
+		return false;
+	
+	--zoomIndex;
+	return true;
 }

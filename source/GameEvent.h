@@ -17,10 +17,12 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 #include "Date.h"
 
 #include <list>
+#include <string>
 #include <vector>
 
 class DataNode;
 class DataWriter;
+class Planet;
 class PlayerInfo;
 class System;
 
@@ -37,6 +39,7 @@ class GameEvent {
 public:
 	void Load(const DataNode &node);
 	void Save(DataWriter &out) const;
+	const std::string &Name() const;
 	
 	const Date &GetDate() const;
 	void SetDate(const Date &date);
@@ -46,9 +49,13 @@ public:
 	
 private:
 	Date date;
+	std::string name;
 	ConditionSet conditionsToApply;
 	std::list<DataNode> changes;
-	std::vector<const System *> systemsToUnvisit; 
+	std::vector<const System *> systemsToVisit;
+	std::vector<const Planet *> planetsToVisit;
+	std::vector<const System *> systemsToUnvisit;
+	std::vector<const Planet *> planetsToUnvisit;
 };
 
 

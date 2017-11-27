@@ -52,7 +52,7 @@ protected:
 
 	virtual void Select(int index) = 0;
 	virtual void Compare(int index) = 0;
-	virtual double SystemValue(const System *system) const = 0;
+	virtual double SystemValue(const System *system) const override = 0;
 	virtual int FindItem(const std::string &text) const = 0;
 	
 	virtual void DrawItems() = 0;
@@ -82,6 +82,7 @@ protected:
 	double maxScroll = 0.;
 	
 	const std::vector<std::string> &categories;
+	bool onlyShowSoldHere = false;
 	
 	
 private:

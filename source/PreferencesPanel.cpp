@@ -14,28 +14,42 @@ PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 
 #include "Audio.h"
 #include "Color.h"
+#include "Dialog.h"
 #include "Files.h"
+#include "FontSet.h"
 #include "GameData.h"
 #include "Information.h"
 #include "Interface.h"
 #include "Preferences.h"
 #include "Screen.h"
+#include "Sprite.h"
+#include "SpriteSet.h"
+#include "SpriteShader.h"
 #include "StarField.h"
 #include "Table.h"
 #include "UI.h"
+#include "WrappedText.h"
 
 #include "gl_header.h"
 #include <SDL2/SDL.h>
+
+#include <algorithm>
 
 using namespace std;
 
 namespace {
 	// Settings that require special handling.
-	static const string ZOOM_FACTOR = "Zoom factor";
-	static const string EXPEND_AMMO = "Escorts expend ammo";
-	static const string FRUGAL_ESCORTS = "Escorts use ammo frugally";
-	static const string REACTIVATE_HELP = "Reactivate first-time help";
-	static const string SCROLL_SPEED = "Scroll speed";
+	const string ZOOM_FACTOR = "Main zoom factor";
+	const int ZOOM_FACTOR_MIN = 100;
+	const int ZOOM_FACTOR_MAX = 200;
+	const int ZOOM_FACTOR_INCREMENT = 10;
+	const string VIEW_ZOOM_FACTOR = "View zoom factor";
+	const string EXPEND_AMMO = "Escorts expend ammo";
+	const string TURRET_TRACKING = "Turret tracking";
+	const string FOCUS_PREFERENCE = "Turrets focus fire";
+	const string FRUGAL_ESCORTS = "Escorts use ammo frugally";
+	const string REACTIVATE_HELP = "Reactivate first-time help";
+	const string SCROLL_SPEED = "Scroll speed";
 }
 
 
@@ -43,6 +57,9 @@ namespace {
 PreferencesPanel::PreferencesPanel()
 	: editing(-1), selected(0), hover(-1)
 {
+	if(!GameData::PluginAboutText().empty())
+		selectedPlugin = GameData::PluginAboutText().begin()->first;
+	
 	SetIsFullScreen(true);
 }
 
@@ -63,6 +80,7 @@ void PreferencesPanel::Draw()
 	
 	zones.clear();
 	prefZones.clear();
+	pluginZones.clear();
 	if(page == 'c')
 		DrawControls();
 	else if(page == 's')
@@ -121,19 +139,37 @@ bool PreferencesPanel::Click(int x, int y, int clicks)
 		{
 			if(zone.Value() == ZOOM_FACTOR)
 			{
-				int zoom = Screen::Zoom();
-				Screen::SetZoom(zoom == 100 ? 150 : zoom == 150 ? 200 : 100);
+				int newZoom = Screen::Zoom() + ZOOM_FACTOR_INCREMENT;
+				if(newZoom > ZOOM_FACTOR_MAX)
+					newZoom = ZOOM_FACTOR_MIN;
+				Screen::SetZoom(newZoom);
 				// Make sure there is enough vertical space for the full UI.
 				if(Screen::Height() < 700)
-					Screen::SetZoom(100);
-				
+				{
+					// Notify the user why setting the zoom any higher isn't permitted.
+					// Only show this if it's not possible to zoom the view at all, as
+					// otherwise the dialog will show every time, which is annoying.
+					if(newZoom == ZOOM_FACTOR_MIN + ZOOM_FACTOR_INCREMENT)
+						GetUI()->Push(new Dialog(
+							"Your screen resolution is too low to support a zoom level above 100%."));
+					Screen::SetZoom(ZOOM_FACTOR_MIN);
+				}
 				// Convert to raw window coordinates, at the new zoom level.
 				point *= Screen::Zoom() / 100.;
 				point += .5 * Point(Screen::RawWidth(), Screen::RawHeight());
 				SDL_WarpMouseInWindow(nullptr, point.X(), point.Y());
 			}
+			if(zone.Value() == VIEW_ZOOM_FACTOR)
+			{
+				// Increase the zoom factor unless it is at the maximum. In that
+				// case, cycle around to the lowest zoom factor.
+				if(!Preferences::ZoomViewIn())
+					while(Preferences::ZoomViewOut()) {}
+			}
 			if(zone.Value() == EXPEND_AMMO)
 				Preferences::ToggleAmmoUsage();
+			else if(zone.Value() == TURRET_TRACKING)
+				Preferences::Set(FOCUS_PREFERENCE, !Preferences::Has(FOCUS_PREFERENCE));
 			else if(zone.Value() == REACTIVATE_HELP)
 			{
 				for(const auto &it : GameData::HelpTemplates())
@@ -152,6 +188,10 @@ bool PreferencesPanel::Click(int x, int y, int clicks)
 			break;
 		}
 	
+	for(const auto &zone : pluginZones)
+		if(zone.Contains(point))
+			selectedPlugin = zone.Value();
+	
 	return true;
 }
 
@@ -159,18 +199,70 @@ bool PreferencesPanel::Click(int x, int y, int clicks)
 
 bool PreferencesPanel::Hover(int x, int y)
 {
-	Point point(x, y);
+	hoverPoint = Point(x, y);
 	
 	hover = -1;
 	for(unsigned index = 0; index < zones.size(); ++index)
-		if(zones[index].Contains(point))
+		if(zones[index].Contains(hoverPoint))
 			hover = index;
 	
 	hoverPreference.clear();
 	for(const auto &zone : prefZones)
-		if(zone.Contains(point))
+		if(zone.Contains(hoverPoint))
 			hoverPreference = zone.Value();
 	
+	hoverPlugin.clear();
+	for(const auto &zone : pluginZones)
+		if(zone.Contains(hoverPoint))
+			hoverPlugin = zone.Value();
+	
+	return true;
+}
+
+
+
+bool PreferencesPanel::Scroll(double dx, double dy)
+{
+	if(!dy || hoverPreference.empty())
+		return false;
+	
+	if(hoverPreference == ZOOM_FACTOR)
+	{
+		int zoom = Screen::Zoom();
+		if(dy < 0. && zoom > ZOOM_FACTOR_MIN)
+			zoom -= ZOOM_FACTOR_INCREMENT;
+		if(dy > 0. && zoom < ZOOM_FACTOR_MAX)
+			zoom += ZOOM_FACTOR_INCREMENT;
+		
+		Screen::SetZoom(zoom);
+		// Make sure there is enough vertical space for the full UI.
+		while(Screen::Height() < 700 && zoom > ZOOM_FACTOR_MIN)
+		{
+			zoom -= ZOOM_FACTOR_INCREMENT;
+			Screen::SetZoom(zoom);
+		}
+		
+		// Convert to raw window coordinates, at the new zoom level.
+		Point point = hoverPoint * (Screen::Zoom() / 100.);
+		point += .5 * Point(Screen::RawWidth(), Screen::RawHeight());
+		SDL_WarpMouseInWindow(nullptr, point.X(), point.Y());
+	}
+	else if(hoverPreference == VIEW_ZOOM_FACTOR)
+	{
+		if(dy < 0.)
+			Preferences::ZoomViewOut();
+		else
+			Preferences::ZoomViewIn();
+	}
+	else if(hoverPreference == SCROLL_SPEED)
+	{
+		int speed = Preferences::ScrollSpeed();
+		if(dy < 0.)
+			speed = max(20, speed - 20);
+		else
+			speed = min(60, speed + 20);
+		Preferences::SetScrollSpeed(speed);
+	}
 	return true;
 }
 
@@ -325,7 +417,10 @@ void PreferencesPanel::DrawSettings()
 	static const string SETTINGS[] = {
 		"Display",
 		ZOOM_FACTOR,
+		VIEW_ZOOM_FACTOR,
 		"Show status overlays",
+		"Highlight player's flagship",
+		"Rotate flagship in HUD",
 		"Show planet labels",
 		"Show mini-map",
 		"",
@@ -333,6 +428,7 @@ void PreferencesPanel::DrawSettings()
 		"Automatic aiming",
 		"Automatic firing",
 		EXPEND_AMMO,
+		TURRET_TRACKING,
 		"",
 		"Performance",
 		"Show CPU / GPU load",
@@ -342,7 +438,9 @@ void PreferencesPanel::DrawSettings()
 		"Show hyperspace flash",
 		"\n",
 		"Other",
+		"Clickable radar display",
 		REACTIVATE_HELP,
+		"Rehire extra crew when lost",
 		SCROLL_SPEED,
 		"Warning siren",
 		"Hide unexplored map regions"
@@ -381,8 +479,18 @@ void PreferencesPanel::DrawSettings()
 			isOn = true;
 			text = to_string(Screen::Zoom());
 		}
+		else if(setting == VIEW_ZOOM_FACTOR)
+		{
+			isOn = true;
+			text = to_string(static_cast<int>(100. * Preferences::ViewZoom()));
+		}
 		else if(setting == EXPEND_AMMO)
 			text = Preferences::AmmoUsage();
+		else if(setting == TURRET_TRACKING)
+		{
+			isOn = true;
+			text = Preferences::Has(FOCUS_PREFERENCE) ? "focused" : "opportunistic";
+		}
 		else if(setting == REACTIVATE_HELP)
 		{
 			// Check how many help messages have been displayed.
@@ -391,8 +499,9 @@ void PreferencesPanel::DrawSettings()
 			for(const auto &it : help)
 				shown += Preferences::Has("help: " + it.first);
 			
+			// Don't count the "basic help" messages in the total.
 			if(shown)
-				text = to_string(shown) + " / " + to_string(help.size());
+				text = to_string(shown) + " / " + to_string(help.size() - 2);
 			else
 			{
 				isOn = true;
@@ -400,7 +509,10 @@ void PreferencesPanel::DrawSettings()
 			}
 		}
 		else if(setting == SCROLL_SPEED)
+		{
+			isOn = true;
 			text = to_string(Preferences::ScrollSpeed());
+		}
 		else
 			text = isOn ? "on" : "off";
 		
@@ -415,7 +527,47 @@ void PreferencesPanel::DrawSettings()
 
 void PreferencesPanel::DrawPlugins()
 {
-	// TODO.
+	Color back = *GameData::Colors().Get("faint");
+	Color medium = *GameData::Colors().Get("medium");
+	Color bright = *GameData::Colors().Get("bright");
+	
+	Table table;
+	table.AddColumn(-115, Table::LEFT);
+	table.SetUnderline(-120, 120);
+	
+	int firstY = -238;
+	table.DrawAt(Point(-130, firstY));
+	table.DrawUnderline(medium);
+	table.Draw("Installed plugins:", bright);
+	table.DrawGap(5);
+	
+	for(const auto &it : GameData::PluginAboutText())
+	{
+		pluginZones.emplace_back(table.GetCenterPoint(), table.GetRowSize(), it.first);
+		
+		bool isSelected = (it.first == selectedPlugin);
+		if(isSelected || it.first == hoverPlugin)
+			table.DrawHighlight(back);
+		table.Draw(it.first, isSelected ? bright : medium);
+		
+		if(isSelected)
+		{
+			const Sprite *sprite = SpriteSet::Get(it.first);
+			Point top(15., firstY);
+			if(sprite)
+			{
+				Point center(130., top.Y() + .5 * sprite->Height());
+				SpriteShader::Draw(sprite, center);
+				top.Y() += sprite->Height() + 10.;
+			}
+			
+			WrappedText wrap(FontSet::Get(14));
+			wrap.SetWrapWidth(230);
+			static const string empty = "(No description given.)";
+			wrap.Wrap(it.second.empty() ? empty : it.second);
+			wrap.Draw(top, medium);
+		}
+	}
 }
 
 
