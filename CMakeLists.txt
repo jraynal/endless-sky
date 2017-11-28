@@ -3,6 +3,9 @@ project(endless-sky CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 find_package(SDL2 REQUIRED)
 # Fix for CMP0004 failure when SDL2_LIBRARIES ends with spaces
@@ -24,7 +27,7 @@ target_link_libraries(endless-sky PRIVATE
                       ${PNG_LIBRARY}
                       JpegTurbo::JpegTurbo
                       GLEW::GLEW
-                      OpenGL::GL
+                      OpenGL::GLU
                       ${OPENAL_LIBRARY}
                       ${libmad_LIBRARIES}
                       ${SDL2_LIBRARIES})

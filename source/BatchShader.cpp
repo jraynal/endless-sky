@@ -35,11 +35,11 @@ void BatchShader::Init()
 {
 	static const char *vertexCode =
 		"uniform vec2 scale;\n"
-		"attribute vec2 vert;\n"
-		"attribute vec3 texCoord;\n"
-		
+		"in vec2 vert;\n"
+		"in vec3 texCoord;\n"
+
 		"out vec3 fragTexCoord;\n"
-		
+
 		"void main() {\n"
 		"  gl_Position = vec4(vert * scale, 0, 1);\n"
 		"  fragTexCoord = texCoord;\n"
