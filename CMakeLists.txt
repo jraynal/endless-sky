@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.1.0)
 project(endless-sky CXX)
 
 set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 find_package(SDL2 REQUIRED)
 # Fix for CMP0004 failure when SDL2_LIBRARIES ends with spaces
@@ -10,6 +11,7 @@ find_package(PNG REQUIRED)
 find_package(JPEG REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(OpenAL REQUIRED)
+find_package(JpegTurbo REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_search_module(libmad REQUIRED mad)
@@ -18,7 +20,14 @@ file(GLOB SOURCES source/*.cpp source/*.h)
 
 
 add_executable(endless-sky ${SOURCES})
-target_link_libraries(endless-sky ${SDL2_LIBRARIES} ${PNG_LIBRARY} ${JPEG_LIBRARY} ${GLEW_LIBRARY} ${OPENAL_LIBRARY} ${libmad_LIBRARIES})
+target_link_libraries(endless-sky
+                      ${SDL2_LIBRARIES}
+                      ${PNG_LIBRARY}
+                      ${JPEG_LIBRARY}
+                      ${GLEW_LIBRARY}
+                      ${OPENAL_LIBRARY}
+                      ${libmad_LIBRARIES}
+                      ${JpegTurbo_LIBRARIES})
 
 install(TARGETS endless-sky RUNTIME DESTINATION games)
 install(DIRECTORY data images sounds DESTINATION share/games/endless-sky)
