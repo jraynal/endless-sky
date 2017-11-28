@@ -17,8 +17,11 @@ find_package(GLEW REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(JpegTurbo REQUIRED)
 
-find_package(PkgConfig REQUIRED)
-pkg_search_module(libmad REQUIRED mad)
+find_package(MAD REQUIRED)
+#find_package(PkgConfig REQUIRED)
+#pkg_search_module(libmad REQUIRED mad)
+#add_library(Mad::Mad UNKNOWN IMPORTED)
+#set_target_properties(Mad::Mad PROPERTIES IMPORTED_LOCATION ${libmad_LIBRARIES})
 
 file(GLOB SOURCES source/*.cpp source/*.h)
 
@@ -28,8 +31,8 @@ target_link_libraries(endless-sky PRIVATE
                       JpegTurbo::JpegTurbo
                       GLEW::GLEW
                       OpenGL::GLU
+                      MAD::MAD
                       ${OPENAL_LIBRARY}
-                      ${libmad_LIBRARIES}
                       ${SDL2_LIBRARIES})
 # Necessary to load jpeg-turbo includes before the system ones :(
 target_include_directories(endless-sky SYSTEM PRIVATE ${JpegTurbo_INCLUDE_DIRS})
