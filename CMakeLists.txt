@@ -8,7 +8,8 @@ find_package(SDL2 REQUIRED)
 # Fix for CMP0004 failure when SDL2_LIBRARIES ends with spaces
 string(STRIP "${SDL2_LIBRARIES}" SDL2_LIBRARIES)
 find_package(PNG REQUIRED)
-find_package(JPEG REQUIRED)
+#find_package(JPEG REQUIRED)
+find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(JpegTurbo REQUIRED)
@@ -18,16 +19,17 @@ pkg_search_module(libmad REQUIRED mad)
 
 file(GLOB SOURCES source/*.cpp source/*.h)
 
-
 add_executable(endless-sky ${SOURCES})
-target_link_libraries(endless-sky
-                      ${SDL2_LIBRARIES}
+target_link_libraries(endless-sky PRIVATE
                       ${PNG_LIBRARY}
-                      ${JPEG_LIBRARY}
-                      ${GLEW_LIBRARY}
+                      JpegTurbo::JpegTurbo
+                      GLEW::GLEW
+                      OpenGL::GL
                       ${OPENAL_LIBRARY}
                       ${libmad_LIBRARIES}
-                      ${JpegTurbo_LIBRARIES})
+                      ${SDL2_LIBRARIES})
+# Necessary to load jpeg-turbo includes before the system ones :(
+target_include_directories(endless-sky SYSTEM PRIVATE ${JpegTurbo_INCLUDE_DIRS})
 
 install(TARGETS endless-sky RUNTIME DESTINATION games)
 install(DIRECTORY data images sounds DESTINATION share/games/endless-sky)

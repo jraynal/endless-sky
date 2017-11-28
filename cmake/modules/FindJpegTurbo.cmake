@@ -59,17 +59,13 @@ find_package_handle_standard_args(JpegTurbo FOUND_VAR JpegTurbo_FOUND
 
 if(JpegTurbo_FOUND)
   set(JpegTurbo_INCLUDE_DIRS ${JpegTurbo_INCLUDE_DIR})
-  set(JpegTurbo_LIBRARIES jpegturbo)
+  set(JpegTurbo_LIBRARIES ${JpegTurbo_LIBRARY})
 
-  add_library(${JpegTurbo_LIBRARIES} SHARED IMPORTED)
-  set_target_properties(${JpegTurbo_LIBRARIES}
-                        PROPERTIES IMPORTED_LOCATION ${JpegTurbo_LIBRARY}
-                                   INTERFACE_INCLUDE_DIRECTORIES ${JpegTurbo_INCLUDE_DIR})
-
-
-  if(NOT JpegTurbo_FIND_QUIETLY)
-    get_filename_component(_dir ${JpegTurbo_INCLUDE_DIR} DIRECTORY)
-    message(STATUS "Found JpegTurbo [version: ${JpegTurbo_VERSION}]: ${_dir}")
+  if (NOT TARGET JpegTurbo::JpegTurbo)
+    add_library(JpegTurbo::JpegTurbo UNKNOWN IMPORTED)
+    set_target_properties(JpegTurbo::JpegTurbo
+                          PROPERTIES IMPORTED_LOCATION "${JpegTurbo_LIBRARY}"
+                                     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${JpegTurbo_INCLUDE_DIR}")
   endif()
 else()
   set(JpegTurbo_INCLUDE_DIR)
